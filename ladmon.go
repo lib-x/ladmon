@@ -162,91 +162,76 @@ func (m *MongoManager) setupIndexes(ctx context.Context) error {
 	return nil
 }
 
-// Create adds a policy to MongoDB
+// Create adds a policy to MongoDB .transaction not supported yet
 func (m *MongoManager) Create(ctx context.Context, policy ladon.Policy) error {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
+	db := m.client.Database(m.database)
 
-	// Start a session for transaction
-	session, err := m.client.StartSession()
+	// 1. Save the policy
+	mongoPolicy := &MongoPolicy{
+		ID:          policy.GetID(),
+		Description: policy.GetDescription(),
+		Effect:      policy.GetEffect(),
+	}
+
+	_, err := db.Collection(m.collections.policies).InsertOne(ctx, mongoPolicy)
 	if err != nil {
-		return errors.Wrap(err, "failed to start session")
+		return errors.Wrap(err, "failed to create policy")
 	}
-	defer session.EndSession(ctx)
 
-	// Execute operations within a transaction
-	callback := func(sessionContext mongo.SessionContext) (interface{}, error) {
-		db := m.client.Database(m.database)
-
-		// 1. Save the policy
-		mongoPolicy := &MongoPolicy{
-			ID:          policy.GetID(),
-			Description: policy.GetDescription(),
-			Effect:      policy.GetEffect(),
-		}
-
-		_, err := db.Collection(m.collections.policies).InsertOne(sessionContext, mongoPolicy)
+	// 2. Save subjects
+	for _, subject := range policy.GetSubjects() {
+		_, err = db.Collection(m.collections.subjects).InsertOne(ctx, MongoSubject{
+			PolicyID: policy.GetID(),
+			Subject:  subject,
+		})
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create policy")
+			return errors.Wrap(err, "failed to create subject")
 		}
-
-		// 2. Save subjects
-		for _, subject := range policy.GetSubjects() {
-			_, err = db.Collection(m.collections.subjects).InsertOne(sessionContext, MongoSubject{
-				PolicyID: policy.GetID(),
-				Subject:  subject,
-			})
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to create subject")
-			}
-		}
-
-		// 3. Save resources
-		for _, resource := range policy.GetResources() {
-			_, err = db.Collection(m.collections.resources).InsertOne(sessionContext, MongoResource{
-				PolicyID: policy.GetID(),
-				Resource: resource,
-			})
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to create resource")
-			}
-		}
-
-		// 4. Save actions
-		for _, action := range policy.GetActions() {
-			_, err = db.Collection(m.collections.actions).InsertOne(sessionContext, MongoAction{
-				PolicyID: policy.GetID(),
-				Action:   action,
-			})
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to create action")
-			}
-		}
-
-		// 5. Save conditions
-		for key, condition := range policy.GetConditions() {
-			// Serialize condition value
-			value, err := json.Marshal(condition)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to marshal condition")
-			}
-
-			_, err = db.Collection(m.collections.conditions).InsertOne(sessionContext, MongoCondition{
-				PolicyID: policy.GetID(),
-				Type:     fmt.Sprintf("%T", condition),
-				Key:      key,
-				Value:    string(value),
-			})
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to create condition")
-			}
-		}
-
-		return nil, nil
 	}
 
-	_, err = session.WithTransaction(ctx, callback)
-	return err
+	// 3. Save resources
+	for _, resource := range policy.GetResources() {
+		_, err = db.Collection(m.collections.resources).InsertOne(ctx, MongoResource{
+			PolicyID: policy.GetID(),
+			Resource: resource,
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to create resource")
+		}
+	}
+
+	// 4. Save actions
+	for _, action := range policy.GetActions() {
+		_, err = db.Collection(m.collections.actions).InsertOne(ctx, MongoAction{
+			PolicyID: policy.GetID(),
+			Action:   action,
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to create action")
+		}
+	}
+
+	// 5. Save conditions
+	for key, condition := range policy.GetConditions() {
+		// Serialize condition value
+		value, err := json.Marshal(condition)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal condition")
+		}
+
+		_, err = db.Collection(m.collections.conditions).InsertOne(ctx, MongoCondition{
+			PolicyID: policy.GetID(),
+			Type:     fmt.Sprintf("%T", condition),
+			Key:      key,
+			Value:    string(value),
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to create condition")
+		}
+	}
+	return nil
 }
 
 // Update updates a policy in MongoDB

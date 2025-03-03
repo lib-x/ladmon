@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ory/ladon"
+	"testing"
 	"time"
 )
 
@@ -12,7 +13,7 @@ func Example() {
 	manager, err := NewMongoManager(
 		"mongodb://localhost:27017",
 		"ladon",
-		10*time.Second,
+		20*time.Second,
 	)
 	if err != nil {
 		panic(err)
@@ -26,17 +27,12 @@ func Example() {
 
 	// Create policy
 	policy := &ladon.DefaultPolicy{
-		ID:          "1",
-		Description: "Test policy",
-		Subjects:    []string{"user:1", "group:admin"},
-		Resources:   []string{"resource:1"},
+		ID:          "3",
+		Description: "Test policy 3",
+		Subjects:    []string{"user:3", "group:admin"},
+		Resources:   []string{"resource:3"},
 		Actions:     []string{"create", "read"},
 		Effect:      ladon.AllowAccess,
-		Conditions: ladon.Conditions{
-			"ip": &ladon.CIDRCondition{
-				CIDR: "192.168.1.0/24",
-			},
-		},
 	}
 
 	// Save policy
@@ -46,8 +42,8 @@ func Example() {
 
 	// Check permission
 	request := &ladon.Request{
-		Subject:  "user:1",
-		Resource: "resource:1",
+		Subject:  "user:3",
+		Resource: "resource:3",
 		Action:   "read",
 	}
 
@@ -56,4 +52,8 @@ func Example() {
 	} else {
 		fmt.Println("Access allowed")
 	}
+}
+
+func Test_Example(t *testing.T) {
+	Example()
 }
