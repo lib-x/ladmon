@@ -61,30 +61,92 @@ type MongoManager struct {
 }
 
 func (m *MongoManager) FindPoliciesForSubject(ctx context.Context, subject string) (ladon.Policies, error) {
-	//TODO implement me
-	panic("implement me")
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	db := m.client.Database(m.database)
+
+	// Find all subject documents matching the subject pattern
+	cursor, err := db.Collection(m.collections.subjects).Find(ctx, bson.M{"subject": subject})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to find matching subjects")
+	}
+	defer cursor.Close(ctx)
+
+	// Collect matching policy IDs
+	var policyIDs []string
+	for cursor.Next(ctx) {
+		var subject MongoSubject
+		if err := cursor.Decode(&subject); err != nil {
+			return nil, errors.Wrap(err, "failed to decode subject")
+		}
+		policyIDs = append(policyIDs, subject.PolicyID)
+	}
+
+	// Get detailed information for each policy
+	var policies ladon.Policies
+	for _, id := range policyIDs {
+		policy, err := m.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, ladon.ErrNotFound) {
+				continue
+			}
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to get policy %s", id))
+		}
+		policies = append(policies, policy)
+	}
+
+	return policies, nil
 }
 
 func (m *MongoManager) FindPoliciesForResource(ctx context.Context, resource string) (ladon.Policies, error) {
-	//TODO implement me
-	panic("implement me")
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	db := m.client.Database(m.database)
+
+	// Find all resource documents matching the resource pattern
+	cursor, err := db.Collection(m.collections.resources).Find(ctx, bson.M{"resource": resource})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to find matching resources")
+	}
+	defer cursor.Close(ctx)
+
+	// Collect matching policy IDs
+	var policyIDs []string
+	for cursor.Next(ctx) {
+		var resource MongoResource
+		if err := cursor.Decode(&resource); err != nil {
+			return nil, errors.Wrap(err, "failed to decode resource")
+		}
+		policyIDs = append(policyIDs, resource.PolicyID)
+	}
+
+	// Get detailed information for each policy
+	var policies ladon.Policies
+	for _, id := range policyIDs {
+		policy, err := m.Get(ctx, id)
+		if err != nil {
+			if errors.Is(err, ladon.ErrNotFound) {
+				continue
+			}
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to get policy %s", id))
+		}
+		policies = append(policies, policy)
+	}
+
+	return policies, nil
 }
 
 // NewMongoManager creates a new MongoManager
-func NewMongoManager(uri, database string, timeout time.Duration) (*MongoManager, error) {
-	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+func NewMongoManager(ctx context.Context, uri, database string, timeout time.Duration) (*MongoManager, error) {
+	connectOption := options.Client().ApplyURI(uri)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	client, err := mongo.Connect(ctx, connectOption)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create mongo client")
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	err = client.Connect(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to connect to mongodb")
-	}
-
 	m := &MongoManager{
 		client:   client,
 		database: database,
